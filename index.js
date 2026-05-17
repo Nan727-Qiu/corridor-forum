@@ -1,439 +1,1180 @@
-// 回廊·回声板论坛 ST扩展插件 v1.0
-
+/**
+ * 回廊·玩家论坛 (CORRIDOR BBS)
+ * SillyTavern Extension v1.0.0
+ *
+ * 配合世界书条目「回廊·论坛系统」使用
+ * AI 输出格式：
+ *   <forum_post>帖子ID|发帖人|标题|内容|板块|时间MM-DD HH:mm</forum_post>
+ *   <forum_reply>帖子ID|回复人|内容|时间MM-DD HH:mm</forum_reply>
+ *   <forum_dm>发送人|接收人|内容|时间MM-DD HH:mm</forum_dm>
+ *   <forum_friend_add>玩家ID</forum_friend_add>
+ */
+ 
 (function () {
   'use strict';
-
-  // ── 状态 ────────────────────────────────────────────────
+ 
+  // ═══════════════════════════════════════════════
+  //  常量
+  // ═══════════════════════════════════════════════
+ 
+  const STORAGE_KEY = 'corridor_bbs_v1';
+  const EXT_ID      = 'corridor-bbs';
+ 
+  const SECTIONS = [
+    { id: 'all',     name: '全部',     color: '#9b7fe8' },
+    { id: 'intel',   name: '情报交流', color: '#e8a020' },
+    { id: 'guide',   name: '副本攻略', color: '#e05050' },
+    { id: 'trade',   name: '交易市场', color: '#30c070' },
+    { id: 'chat',    name: '自由讨论', color: '#4090d0' },
+    { id: 'missing', name: '失踪报告', color: '#808898' },
+  ];
+ 
+  // 板块关键词 → id（AI 输出板块字段时的映射）
+  const SEC_MAP = {
+    '情报': 'intel', '情报交流': 'intel', 'intel': 'intel',
+    '副本': 'guide', '副本攻略': 'guide', '攻略': 'guide', 'guide': 'guide',
+    '交易': 'trade', '交易市场': 'trade', 'trade': 'trade',
+    '自由': 'chat',  '讨论': 'chat',  '自由讨论': 'chat',  'chat': 'chat',
+    '失踪': 'missing', '失踪报告': 'missing', 'missing': 'missing',
+  };
+ 
+  // ═══════════════════════════════════════════════
+  //  状态
+  // ═══════════════════════════════════════════════
+ 
   const S = {
-    view: 'forum',       // forum | post | friends | chat
-    section: '情报交流',
-    openPostId: null,
-    chatTarget: null,
-
-    posts: {
-      '情报交流': [
-        { id:1, author:'Vex_镜夜', level:'B', time:'3小时前', title:'【攻略】关于"规则系"天赋的几个实测结论，慎点', locked:true, cost:50, replies:87 },
-        { id:2, author:'匿名玩家', level:'E', time:'41分钟前', title:'有没有人遇到过副本里NPC自己开口说"游戏"的？', locked:false, cost:0, replies:23 },
-        { id:3, author:'千禧_04', level:'C', time:'1小时前', title:'道具商城价格规律总结（第三版更新）', locked:true, cost:20, replies:134 },
-        { id:4, author:'路过的人', level:'D', time:'2小时前', title:'治疗系天赋成长到第三阶段之后会发生什么', locked:false, cost:0, replies:56 },
-        { id:5, author:'霜序', level:'A', time:'昨天', title:'关于越级挑战S本的死亡率，数据向（看完别骂我）', locked:true, cost:100, replies:302 },
-      ],
-      '组队广场': [
-        { id:6, author:'新人_阿辞', level:'F', time:'12分钟前', title:'【求队】第一次下副本，有没有人带一下', locked:false, cost:0, replies:4 },
-        { id:7, author:'三木_光', level:'C', time:'30分钟前', title:'【招募】D级以上，稳拿支线', locked:false, cost:0, replies:11 },
-        { id:8, author:'无名之辈', level:'E', time:'1小时前', title:'【求队】两个人，找另外4人，E级本随缘', locked:false, cost:0, replies:7 },
-      ],
-      '新人求助': [
-        { id:9, author:'第一次来', level:'F', time:'20分钟前', title:'面板上"距强制进入"是什么意思，会真的死吗', locked:false, cost:0, replies:19 },
-        { id:10, author:'慌慌的人', level:'F', time:'55分钟前', title:'刚过了第一个副本，吓得腿软，现在怎么办', locked:false, cost:0, replies:31 },
-      ],
-      '黑名单曝光': [
-        { id:11, author:'憋着一口气', level:'D', time:'4小时前', title:'曝光·ID[鸦枭]·趁我重伤抢走了唯一解锁道具', locked:false, cost:0, replies:44 },
-        { id:12, author:'匿名玩家', level:'E', time:'昨天', title:'有个C级在新人本结尾抢buff，慎组', locked:false, cost:0, replies:28 },
-      ],
-      '闲聊杂谈': [
-        { id:13, author:'不眠者_九', level:'B', time:'2小时前', title:'在回廊里数了一下，我已经进了43个副本了', locked:false, cost:0, replies:67 },
-        { id:14, author:'随便来看看', level:'E', time:'3小时前', title:'有没有人梦到过副本里的NPC来到现实', locked:false, cost:0, replies:89 },
-      ],
-      '悬赏任务': [
-        { id:15, author:'煊_悬赏官', level:'A', time:'6小时前', title:'【悬赏·500积分】收购任何与"规则层"有关的情报', locked:false, cost:0, replies:12 },
-        { id:16, author:'千禧_04', level:'C', time:'1天前', title:'【悬赏·200积分】寻找曾进入"白塔副本"的玩家', locked:false, cost:0, replies:5 },
-      ],
-    },
-
-    friends: [
-      { id:'霜序', level:'A', status:'副本中', unread:0 },
-      { id:'千禧_04', level:'C', status:'回廊中', unread:2 },
-    ],
-
-    chatLogs: {
-      '千禧_04': [
-        { from:'千禧_04', content:'你是新来的？第一个本过了不容易，恭喜。', time:'1小时前' },
-        { from:'千禧_04', content:'有空可以一起组队，我这边缺个新人帮跑支线。', time:'1小时前' },
-      ],
+    userId: '',
+    posts:   [],   // {id,author,section,title,content,time,views,replies:[{author,content,time}]}
+    friends: [],   // [{id, color}]
+    dms:     {},   // { friendId: [{sender,content,time}] }
+    unread:  {},   // { friendId: number }  私信未读
+    newPosts: 0,   // 论坛新帖/回复通知
+    // UI
+    ui: {
+      visible: false,
+      view:           'setup',   // setup|main|thread|compose|dm
+      activePostId:   null,
+      activeFriendId: null,
+      activeSection:  'all',
+      // 表单暂存
+      composeSection: 'chat',
+      composeTitle:   '',
+      composeContent: '',
+      replyDraft:     '',
+      dmDraft:        '',
+      friendSearch:   '',
     },
   };
-
-  const REPLIES = {
-    '情报交流': [
-      ['镜夜_追随者','D','看到规则系实战的时候脚都软了，改写副本逻辑的操作不是普通玩家能理解的维度。'],
-      ['沉默观察者','C','数据很详实，感谢楼主。建议补充规则系和操纵系的边界冲突案例。'],
-      ['新人路过','E','看不太懂，但感觉很厉害……我现在还是F级。'],
-      ['无所谓_反正活着','B','规则系触发条件极苛刻，我见过的两个规则系都因为时机不对死在本里了。'],
-    ],
-    '组队广场': [
-      ['热心人_阿旺','D','新人不用怕，第一个本没那么难，建议找个E级老带。'],
-      ['过路中年人','C','建议组队前互报天赋方向，配置合理比等级更重要。'],
-      ['随时待命','E','我也在找队，可以私信我，现在回廊待着。'],
-    ],
-    '新人求助': [
-      ['过来人说','D','七天限制是真的，我朋友第八天凌晨就消失了，再没回来。'],
-      ['温柔的前辈','C','第一个本结束后大家都这状态，找个地方坐坐，喝点东西。'],
-      ['刚过来的','E','我也是刚通关第一个本，境况差不多，加个好友不（笑'],
-    ],
-    '黑名单曝光': [
-      ['见过世面的','A','这种人每个池子里都有，记住ID，下次匹配到直接踢。'],
-      ['气死了也','D','曝光是对的，注意保留截图，纯文字帖容易被反告。'],
-      ['路人甲','E','背刺这种事怎么会有人干……大家都是被迫来这里的。'],
-    ],
-    '闲聊杂谈': [
-      ['也数过的','C','我是61个，数着数着就麻木了。'],
-      ['夜里失眠的','D','梦到过，那个NPC在梦里跟我说了副本里没说完的话，吓得我没敢开灯。'],
-      ['不理性的那个','E','这个游戏根本不正常，不要用正常逻辑解释它。'],
-    ],
-    '悬赏任务': [
-      ['考虑接单的','C','500积分不少，但"规则层"这词我只在死人遗物里看到过。'],
-      ['沉默竞标者','B','私信了，有点信息，谈个价。'],
-    ],
+ 
+  // ═══════════════════════════════════════════════
+  //  本地存储
+  // ═══════════════════════════════════════════════
+ 
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        userId:  S.userId,
+        posts:   S.posts,
+        friends: S.friends,
+        dms:     S.dms,
+        unread:  S.unread,
+      }));
+    } catch (_) {}
+  }
+ 
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      S.userId  = d.userId  || '';
+      S.posts   = d.posts   || [];
+      S.friends = d.friends || [];
+      S.dms     = d.dms     || {};
+      S.unread  = d.unread  || {};
+      if (S.userId) S.ui.view = 'main';
+    } catch (_) {}
+  }
+ 
+  function clearAll() {
+    localStorage.removeItem(STORAGE_KEY);
+    S.userId = ''; S.posts = []; S.friends = []; S.dms = {}; S.unread = {};
+    S.newPosts = 0;
+    S.ui.view = 'setup';
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  解析 AI 输出
+  // ═══════════════════════════════════════════════
+ 
+  const RE = {
+    post:      /<forum_post>([\s\S]*?)<\/forum_post>/g,
+    reply:     /<forum_reply>([\s\S]*?)<\/forum_reply>/g,
+    dm:        /<forum_dm>([\s\S]*?)<\/forum_dm>/g,
+    friendAdd: /<forum_friend_add>([\s\S]*?)<\/forum_friend_add>/g,
   };
-  // ── 工具 ────────────────────────────────────────────────
-  function lvc(lv) {
-    return {S:'#d4a820',A:'#c060c0',B:'#6080d0',C:'#50c090',D:'#d06030',E:'#909090',F:'#606060','?':'#505070'}[lv] || '#808080';
-  }
-  function nowTime() {
-    return new Date().toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' });
-  }
-  function totalUnread() {
-    return S.friends.reduce((n, f) => n + (f.unread || 0), 0);
-  }
-  function allPosts() {
-    return Object.values(S.posts).flat();
-  }
-  function esc(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // ── 获取/创建覆盖层 ─────────────────────────────────────
-  function getOverlay() {
-    let el = document.getElementById('corridor-forum-overlay');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'corridor-forum-overlay';
-      document.body.appendChild(el);
+ 
+  function parseText(text) {
+    if (!text) return false;
+    let changed = false;
+ 
+    // ── 新帖 ──────────────────────────────────────
+    for (const m of [...text.matchAll(RE.post)]) {
+      const p = m[1].split('|').map(s => s.trim());
+      if (p.length < 6) continue;
+      const [id, author, title, content, secRaw, time] = p;
+      if (S.posts.find(x => x.id === id)) continue;
+      const section = SEC_MAP[secRaw] || 'chat';
+      S.posts.unshift({
+        id, author, title, content, section, time,
+        replies: [],
+        views: randInt(20, 350),
+      });
+      S.newPosts++;
+      changed = true;
     }
-    return el;
+ 
+    // ── 回帖 ──────────────────────────────────────
+    for (const m of [...text.matchAll(RE.reply)]) {
+      const p = m[1].split('|').map(s => s.trim());
+      if (p.length < 4) continue;
+      const [postId, author, content, time] = p;
+      const post = S.posts.find(x => x.id === postId);
+      if (!post) continue;
+      const dup = post.replies.find(r => r.author === author && r.content === content);
+      if (dup) continue;
+      post.replies.push({ author, content, time });
+      if (post.author === S.userId) S.newPosts++;
+      changed = true;
+    }
+ 
+    // ── 私信 ──────────────────────────────────────
+    for (const m of [...text.matchAll(RE.dm)]) {
+      const p = m[1].split('|').map(s => s.trim());
+      if (p.length < 4) continue;
+      const [sender, receiver, content, time] = p;
+      if (receiver !== S.userId && sender !== S.userId) continue;
+      const fid = sender === S.userId ? receiver : sender;
+      if (!S.dms[fid]) S.dms[fid] = [];
+      const last = S.dms[fid].slice(-1)[0];
+      if (last && last.sender === sender && last.content === content) continue;
+      S.dms[fid].push({ sender, content, time });
+      if (sender !== S.userId) {
+        S.unread[fid] = (S.unread[fid] || 0) + 1;
+      }
+      changed = true;
+    }
+ 
+    // ── 好友确认 ──────────────────────────────────
+    for (const m of [...text.matchAll(RE.friendAdd)]) {
+      const fid = m[1].trim();
+      if (!fid || S.friends.find(f => f.id === fid)) continue;
+      S.friends.push({ id: fid, color: randColor() });
+      if (!S.dms[fid]) S.dms[fid] = [];
+      changed = true;
+    }
+ 
+    if (changed) { save(); if (S.ui.visible) render(); }
+    return changed;
   }
-
-  // ── 渲染主框架 ──────────────────────────────────────────
+ 
+  // ═══════════════════════════════════════════════
+  //  解析全量消息
+  // ═══════════════════════════════════════════════
+ 
+  let _parselock = false;
+ 
+  async function parseAllMessages() {
+    if (_parselock) return;
+    _parselock = true;
+    try {
+      const lastId = await triggerSlash('/pass {{lastMessageId}}');
+      if (!lastId) return;
+      const msgs = await getChatMessages(`0-${lastId}`, { role: 'assistant' });
+      for (const msg of msgs) {
+        if (msg.message) parseText(msg.message);
+      }
+    } catch (e) {
+      console.error('[BBS] parseAllMessages error:', e);
+    } finally {
+      _parselock = false;
+    }
+  }
+ 
+  async function parseLatest() {
+    if (_parselock) return;
+    _parselock = true;
+    try {
+      const lastId = await triggerSlash('/pass {{lastMessageId}}');
+      if (!lastId) return;
+      const id = parseInt(lastId);
+      const start = Math.max(0, id - 1);
+      const msgs = await getChatMessages(`${start}-${id}`, { role: 'assistant' });
+      for (const msg of msgs) {
+        if (msg.message) parseText(msg.message);
+      }
+    } catch (e) {
+      console.error('[BBS] parseLatest error:', e);
+    } finally {
+      _parselock = false;
+    }
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  发送消息到 ST
+  // ═══════════════════════════════════════════════
+ 
+  async function sendToChat(text) {
+    try {
+      const $ta  = $('#send_textarea');
+      const $btn = $('#send_but');
+      if (!$ta.length || !$btn.length) return;
+      $ta.val(text).trigger('input').trigger('change');
+      await sleep(100);
+      $btn.trigger('click');
+    } catch (e) {
+      console.error('[BBS] sendToChat error:', e);
+    }
+  }
+ 
+  // ── Prompt 构建 ────────────────────────────────
+ 
+  function promptPost(postId, sectionId, title, content) {
+    const secName = secById(sectionId).name;
+    return (
+      `【回廊玩家论坛 · ${secName}板块 · 新帖】\n` +
+      `发帖人：${S.userId}\n标题：${title}\n内容：${content}\n\n` +
+      `请以论坛内其他回廊玩家身份，用自然语气发表1至2条回复。\n` +
+      `每条格式（管道符分隔，内容中不可含管道符）：\n` +
+      `<forum_reply>${postId}|玩家ID|回复内容|时间MM-DD HH:mm</forum_reply>\n` +
+      `玩家ID风格：游戏ID+数字，如 GhostMark_09、零碎_21、SilverBullet_47。\n` +
+      `内容结合回廊世界观（副本、积分、天赋、生存压力等），语气多元（热心/冷淡/怀疑/共情）。`
+    );
+  }
+ 
+  function promptReply(post, content) {
+    return (
+      `【回廊玩家论坛 · 帖子互动】\n` +
+      `帖子「${post.title}」（${post.author} 发）\n` +
+      `${S.userId} 回复：${content}\n\n` +
+      `请以其他玩家身份追加0到1条回复（可选，视话题热度决定）。\n` +
+      `格式：<forum_reply>${post.id}|玩家ID|内容|时间MM-DD HH:mm</forum_reply>`
+    );
+  }
+ 
+  function promptDM(friendId, content) {
+    return (
+      `【回廊玩家论坛 · 私信】\n` +
+      `${S.userId} → ${friendId}：${content}\n\n` +
+      `请扮演 ${friendId} 回复这条私信，简短自然，符合其人物特点与回廊世界观。\n` +
+      `格式：<forum_dm>${friendId}|${S.userId}|回复内容|时间MM-DD HH:mm</forum_dm>`
+    );
+  }
+ 
+  function promptAddFriend(friendId) {
+    return (
+      `【回廊玩家论坛 · 好友申请】\n` +
+      `${S.userId} 尝试添加玩家「${friendId}」为好友。\n\n` +
+      `如果该 ID 像一个真实的回廊玩家（游戏风格 ID），请输出：\n` +
+      `<forum_friend_add>${friendId}</forum_friend_add>\n` +
+      `然后用1至2句话描述该玩家的风格、等级或在论坛中的形象（结合世界观）。\n` +
+      `如果 ID 不合理（乱码、现实人名等），只输出：【系统】未找到用户「${friendId}」，请确认 ID 正确。`
+    );
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  样式
+  // ═══════════════════════════════════════════════
+ 
+  const CSS = /* css */ `
+    /* ── 遮罩 ── */
+    #cf-overlay {
+      position: fixed; inset: 0; z-index: 99998;
+      background: rgba(0,0,0,.82);
+      backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Noto Sans SC','Microsoft YaHei',sans-serif;
+      font-size: 13px; color: #c8b8f0; letter-spacing: .5px;
+    }
+    /* ── 主窗口 ── */
+    #cf-win {
+      width: 720px; max-width: 96vw;
+      height: 88vh; max-height: 860px;
+      background: #08080e;
+      border: 1px solid rgba(140,90,230,.22);
+      border-radius: 10px;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 0 60px rgba(100,50,200,.25), 0 0 120px rgba(60,30,120,.15);
+    }
+    /* ── 顶部彩条 ── */
+    #cf-rainbow {
+      height: 2px; flex-shrink:0;
+      background: linear-gradient(90deg,transparent,#6b3fc8,#b794f4,#e0c0ff,#b794f4,#6b3fc8,transparent);
+    }
+    /* ── 标题栏 ── */
+    #cf-header {
+      display:flex; align-items:center; gap:10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(140,90,230,.12);
+      flex-shrink: 0;
+    }
+    .cf-logo {
+      flex:1; font-size:13px; font-weight:700;
+      color:#b794f4; letter-spacing:3px;
+    }
+    .cf-logo em { color:rgba(180,150,255,.35); font-style:normal; font-size:10px; margin-left:6px; letter-spacing:1px; }
+    .cf-hbtn {
+      background:none; border:1px solid rgba(140,90,230,.3); color:#7060b0;
+      cursor:pointer; border-radius:4px; padding:4px 11px;
+      font-size:11px; transition:.15s; white-space:nowrap;
+    }
+    .cf-hbtn:hover { background:rgba(140,90,230,.2); color:#c4a7ff; }
+    .cf-hbtn.danger { border-color:rgba(200,80,80,.3); color:#804060; }
+    .cf-hbtn.danger:hover { background:rgba(200,80,80,.15); color:#e08080; }
+    /* 通知角标 */
+    .cf-badge {
+      display:inline-flex; align-items:center; justify-content:center;
+      background:#7b4fc8; color:#fff; border-radius:10px;
+      padding:1px 6px; font-size:10px; min-width:18px;
+      margin-left:4px;
+    }
+    /* ── 主体布局 ── */
+    #cf-body {
+      display:flex; flex:1; overflow:hidden;
+    }
+    /* ── 侧边栏 ── */
+    #cf-sidebar {
+      width:138px; flex-shrink:0;
+      border-right:1px solid rgba(140,90,230,.1);
+      display:flex; flex-direction:column;
+      padding:10px 0;
+    }
+    .cf-user-box {
+      padding:0 12px 12px;
+      border-bottom:1px solid rgba(140,90,230,.1);
+      margin-bottom:8px;
+    }
+    .cf-ava {
+      width:36px; height:36px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:15px; font-weight:700; color:#e0d0ff;
+      margin-bottom:6px;
+    }
+    .cf-uid { font-size:11px; color:#7060a0; letter-spacing:1px; word-break:break-all; }
+    .cf-secbtn {
+      padding:8px 12px 8px 14px;
+      font-size:11px; color:#5040a0; cursor:pointer;
+      transition:.12s; border-left:2px solid transparent;
+      display:flex; align-items:center; gap:5px;
+    }
+    .cf-secbtn:hover { color:#b794f4; background:rgba(140,90,230,.07); }
+    .cf-secbtn.on { color:#c4a7ff; border-left-color:#8b5cf6; background:rgba(140,90,230,.12); }
+    /* ── 内容区 ── */
+    #cf-content {
+      flex:1; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .cf-scroll {
+      flex:1; overflow-y:auto; overflow-x:hidden;
+    }
+    .cf-scroll::-webkit-scrollbar { width:3px; }
+    .cf-scroll::-webkit-scrollbar-thumb { background:rgba(140,90,230,.25); border-radius:2px; }
+    /* ── 帖子卡片 ── */
+    .cf-card {
+      padding:13px 16px;
+      border-bottom:1px solid rgba(140,90,230,.07);
+      cursor:pointer; transition:background .12s;
+    }
+    .cf-card:hover { background:rgba(140,90,230,.07); }
+    .cf-card-top {
+      display:flex; align-items:center; gap:7px; margin-bottom:5px;
+    }
+    .cf-sec-tag {
+      font-size:9px; padding:2px 8px; border-radius:10px;
+      letter-spacing:1px; flex-shrink:0;
+    }
+    .cf-card-author { font-size:10px; color:#4a3578; }
+    .cf-card-time   { font-size:10px; color:#3a2560; margin-left:auto; flex-shrink:0; }
+    .cf-card-title  { font-size:13px; color:#d0c0f0; margin-bottom:4px; line-height:1.4; }
+    .cf-card-excerpt {
+      font-size:11px; color:#4a3870;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .cf-card-footer {
+      display:flex; gap:12px; margin-top:6px;
+      font-size:10px; color:#3a2860;
+    }
+    /* ── 帖子详情 ── */
+    .cf-thread-op {
+      padding:16px;
+      border-bottom:1px solid rgba(140,90,230,.1);
+    }
+    .cf-thread-title { font-size:15px; color:#d8c8f8; margin-bottom:8px; line-height:1.4; }
+    .cf-thread-meta  { font-size:10px; color:#4a3578; margin-bottom:12px; }
+    .cf-thread-body  { font-size:12px; color:#9888c0; line-height:1.75; white-space:pre-wrap; }
+    .cf-reply-divider {
+      padding:7px 16px;
+      font-size:10px; color:#4a3578; letter-spacing:1px;
+      border-bottom:1px solid rgba(140,90,230,.07);
+      background:rgba(0,0,0,.2);
+    }
+    .cf-reply-item {
+      display:flex; gap:10px; padding:12px 16px;
+      border-bottom:1px solid rgba(140,90,230,.05);
+    }
+    .cf-reply-ava {
+      width:27px; height:27px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:10px; font-weight:700; flex-shrink:0; margin-top:2px;
+    }
+    .cf-reply-author { font-size:11px; color:#6858a8; margin-bottom:4px; }
+    .cf-reply-author span { color:#3a2860; margin-left:8px; font-size:10px; }
+    .cf-reply-text { font-size:12px; color:#9080b8; line-height:1.65; }
+    .cf-reply-time { font-size:10px; color:#3a2060; margin-top:4px; }
+    /* ── 回复输入框 ── */
+    .cf-input-row {
+      display:flex; gap:8px; padding:10px 14px;
+      border-top:1px solid rgba(140,90,230,.12);
+      flex-shrink:0;
+    }
+    .cf-ta {
+      flex:1; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.2);
+      border-radius:6px; color:#c8b8f0; font-size:12px;
+      padding:8px 10px; resize:none; font-family:inherit;
+      min-height:54px;
+    }
+    .cf-ta:focus { outline:none; border-color:rgba(140,90,230,.5); }
+    .cf-ta::placeholder { color:#3a2a60; }
+    .cf-inp {
+      flex:1; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.2);
+      border-radius:6px; color:#c8b8f0; font-size:12px;
+      padding:8px 10px; font-family:inherit;
+    }
+    .cf-inp:focus { outline:none; border-color:rgba(140,90,230,.5); }
+    .cf-inp::placeholder { color:#3a2a60; }
+    .cf-sbtn {
+      background:linear-gradient(135deg,#4a3080,#6a4ab0);
+      color:#e0d0ff; border:none; border-radius:6px;
+      padding:0 16px; cursor:pointer; font-size:12px;
+      transition:.15s; align-self:flex-end; height:34px; flex-shrink:0;
+    }
+    .cf-sbtn:hover { background:linear-gradient(135deg,#5a3a90,#7a5ac0); }
+    /* ── 发帖表单 ── */
+    .cf-form { padding:16px; }
+    .cf-form-group { margin-bottom:13px; }
+    .cf-label { font-size:10px; color:#6050a0; letter-spacing:1px; margin-bottom:5px; display:block; }
+    .cf-select {
+      width:100%; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.2);
+      border-radius:6px; color:#c8b8f0; font-size:12px;
+      padding:8px 10px; cursor:pointer;
+    }
+    .cf-select option { background:#0e0e1a; }
+    .cf-full-ta {
+      width:100%; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.2);
+      border-radius:6px; color:#c8b8f0; font-size:12px;
+      padding:8px 10px; resize:vertical; font-family:inherit;
+      min-height:100px;
+    }
+    .cf-full-ta:focus, .cf-select:focus { outline:none; border-color:rgba(140,90,230,.5); }
+    .cf-full-inp {
+      width:100%; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.2);
+      border-radius:6px; color:#c8b8f0; font-size:12px;
+      padding:8px 10px; font-family:inherit;
+    }
+    .cf-full-inp:focus { outline:none; border-color:rgba(140,90,230,.5); }
+    /* ── 好友栏 ── */
+    #cf-friends {
+      width:168px; flex-shrink:0;
+      border-left:1px solid rgba(140,90,230,.1);
+      display:flex; flex-direction:column;
+    }
+    .cf-panel-head {
+      padding:9px 12px;
+      font-size:10px; color:#5040a0; letter-spacing:2px;
+      border-bottom:1px solid rgba(140,90,230,.09);
+      display:flex; align-items:center; gap:6px;
+    }
+    .cf-add-row {
+      display:flex; gap:5px; padding:7px 10px;
+      border-bottom:1px solid rgba(140,90,230,.07);
+    }
+    .cf-add-inp {
+      flex:1; background:rgba(140,90,230,.07);
+      border:1px solid rgba(140,90,230,.18);
+      border-radius:4px; color:#b8a8e0; font-size:11px;
+      padding:4px 7px;
+    }
+    .cf-add-inp:focus { outline:none; border-color:rgba(140,90,230,.45); }
+    .cf-add-btn {
+      background:rgba(140,90,230,.22); border:none;
+      color:#9070d0; border-radius:4px; padding:4px 9px;
+      cursor:pointer; font-size:13px; line-height:1;
+    }
+    .cf-add-btn:hover { background:rgba(140,90,230,.4); }
+    .cf-friend-item {
+      display:flex; align-items:center; gap:7px;
+      padding:8px 12px; cursor:pointer; transition:.12s; position:relative;
+    }
+    .cf-friend-item:hover, .cf-friend-item.on { background:rgba(140,90,230,.1); }
+    .cf-f-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+    .cf-f-name { font-size:11px; color:#7060a8; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cf-f-badge {
+      background:#6a4ac8; color:#fff; border-radius:10px;
+      padding:1px 5px; font-size:9px; flex-shrink:0;
+    }
+    /* ── 私信视图 ── */
+    .cf-dm-header {
+      padding:9px 14px;
+      font-size:11px; color:#8070b0;
+      border-bottom:1px solid rgba(140,90,230,.1); flex-shrink:0;
+    }
+    .cf-dm-msgs {
+      flex:1; overflow-y:auto; padding:12px 14px;
+      display:flex; flex-direction:column; gap:10px;
+    }
+    .cf-dm-msgs::-webkit-scrollbar { width:3px; }
+    .cf-dm-msgs::-webkit-scrollbar-thumb { background:rgba(140,90,230,.2); border-radius:2px; }
+    .cf-msg-row { display:flex; gap:7px; align-items:flex-end; }
+    .cf-msg-row.me { flex-direction:row-reverse; }
+    .cf-bubble {
+      max-width:72%; padding:8px 12px;
+      border-radius:8px; font-size:12px; line-height:1.55;
+    }
+    .cf-msg-row:not(.me) .cf-bubble {
+      background:rgba(140,90,230,.14); color:#a898d8;
+      border-bottom-left-radius:2px;
+    }
+    .cf-msg-row.me .cf-bubble {
+      background:rgba(80,48,160,.45); color:#d0c0f8;
+      border-bottom-right-radius:2px;
+    }
+    .cf-msg-who { font-size:9px; color:#4a3080; margin-bottom:2px; }
+    .cf-msg-t   { font-size:9px; color:#3a2060; align-self:center; flex-shrink:0; }
+    /* ── 初始化设置 ── */
+    .cf-setup {
+      flex:1; display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      padding:40px; gap:18px; text-align:center;
+    }
+    .cf-setup-logo {
+      font-size:32px; font-weight:700;
+      color:#b794f4; letter-spacing:10px;
+    }
+    .cf-setup-sub {
+      font-size:10px; color:#4a3080; letter-spacing:4px; margin-top:-12px;
+    }
+    .cf-setup-desc {
+      font-size:12px; color:#5a4890; line-height:1.8; max-width:320px;
+    }
+    /* ── 通用 ── */
+    .cf-empty {
+      text-align:center; padding:40px 20px;
+      font-size:12px; color:#3a2860;
+      line-height:2;
+    }
+    .cf-back-btn {
+      background:none; border:none; color:#6050a0;
+      cursor:pointer; font-size:14px; padding:0 6px;
+      line-height:1; transition:.12s;
+    }
+    .cf-back-btn:hover { color:#b794f4; }
+    .cf-wide-btn {
+      width:100%; background:linear-gradient(135deg,#4a3080,#6a4ab0);
+      color:#e0d0ff; border:none; border-radius:6px;
+      padding:10px 0; cursor:pointer; font-size:13px;
+      transition:.15s;
+    }
+    .cf-wide-btn:hover { background:linear-gradient(135deg,#5a3a90,#7a5ac0); }
+  `;
+ 
+  // ═══════════════════════════════════════════════
+  //  渲染
+  // ═══════════════════════════════════════════════
+ 
   function render() {
-    const overlay = getOverlay();
-    overlay.classList.add('open');
-
-    const unread = totalUnread();
-    const isForumActive = S.view === 'forum' || S.view === 'post';
-    const isFriendActive = S.view === 'friends' || S.view === 'chat';
-
-    let bodyHtml = '';
-    if (S.view === 'forum')   bodyHtml = htmlForum();
-    if (S.view === 'post')    bodyHtml = htmlPost(S.openPostId);
-    if (S.view === 'friends') bodyHtml = htmlFriends();
-    if (S.view === 'chat')    bodyHtml = htmlChat(S.chatTarget);
-
-    overlay.innerHTML = `
-      <div class="cf-topnav">
-        <div class="cf-topnav-title">◈ 回声板</div>
-        <div class="cf-topnav-right">
-          <button class="cf-nav-btn ${isForumActive?'active':''}" id="cf-goto-forum">论坛</button>
-          <button class="cf-nav-btn ${isFriendActive?'active':''}" id="cf-goto-friends">
-            好友${unread ? `<span class="cf-badge">${unread}</span>` : ''}
-          </button>
-          <button class="cf-close-btn" id="cf-close">✕ 关闭</button>
+    const el = document.getElementById('cf-overlay');
+    if (!el) return;
+    el.innerHTML = buildRoot();
+    bindEvents(el);
+  }
+ 
+  function buildRoot() {
+    const { view } = S.ui;
+    const isSetup = view === 'setup';
+    const totalUnread = Object.values(S.unread).reduce((a, b) => a + b, 0);
+    const totalNotif  = S.newPosts + totalUnread;
+ 
+    // 标题区回退按钮
+    const backBtn = (view !== 'main' && view !== 'setup')
+      ? `<button class="cf-back-btn" data-a="back">←</button>` : '';
+ 
+    // 右侧按钮区
+    const headerRight = isSetup
+      ? ''
+      : `<button class="cf-hbtn" data-a="compose">＋ 发帖</button>
+         ${totalNotif > 0 ? `<span class="cf-badge">${totalNotif}</span>` : ''}`;
+ 
+    return `
+      <div id="cf-win">
+        <div id="cf-rainbow"></div>
+        <div id="cf-header">
+          ${backBtn}
+          <div class="cf-logo">CORRIDOR·BBS<em>回廊玩家论坛</em></div>
+          ${headerRight}
+          <button class="cf-hbtn danger" data-a="close">✕</button>
+        </div>
+        ${isSetup
+          ? `<div id="cf-body" style="overflow:hidden;">${buildSetup()}</div>`
+          : `<div id="cf-body">
+               ${buildSidebar()}
+               <div id="cf-content">${buildContent()}</div>
+               ${buildFriends()}
+             </div>`
+        }
+      </div>
+    `;
+  }
+ 
+  // ── 初始化设置 ──────────────────────────────────
+ 
+  function buildSetup() {
+    return `
+      <div class="cf-setup" style="flex:1;">
+        <div class="cf-setup-logo">BBS</div>
+        <div class="cf-setup-sub">CORRIDOR PLAYER FORUM</div>
+        <div class="cf-setup-desc">
+          欢迎来到「回廊玩家论坛」。<br>
+          这里是玩家间分享情报、攻略与交易的聚集地。<br>
+          请设置你的论坛 ID 以继续。
+        </div>
+        <div style="width:100%;max-width:300px;">
+          <div class="cf-label">论坛 ID（作为你的公开身份）</div>
+          <input id="cf-setup-id" class="cf-full-inp" placeholder="如 SilverBullet_47 / 零碎_21" value="${esc(S.userId)}" />
+        </div>
+        <button class="cf-wide-btn" data-a="setup-ok" style="max-width:300px;">进入论坛</button>
+      </div>
+    `;
+  }
+ 
+  // ── 侧边栏 ─────────────────────────────────────
+ 
+  function buildSidebar() {
+    const avaColor = strToColor(S.userId);
+    const sections = SECTIONS.map(s => {
+      const active = S.ui.view === 'main' && S.ui.activeSection === s.id ? 'on' : '';
+      return `<div class="cf-secbtn ${active}" data-a="section" data-sec="${s.id}">${s.name}</div>`;
+    }).join('');
+ 
+    return `
+      <div id="cf-sidebar">
+        <div class="cf-user-box">
+          <div class="cf-ava" style="background:${avaColor};">${initial(S.userId)}</div>
+          <div class="cf-uid">${esc(S.userId)}</div>
+        </div>
+        ${sections}
+        <div style="flex:1;"></div>
+        <div class="cf-secbtn" data-a="clear-data" style="color:#502030;font-size:10px;border-top:1px solid rgba(140,90,230,.08);margin-top:4px;">清除数据</div>
+      </div>
+    `;
+  }
+ 
+  // ── 主内容 ─────────────────────────────────────
+ 
+  function buildContent() {
+    const { view } = S.ui;
+    if (view === 'main')    return buildMain();
+    if (view === 'thread')  return buildThread();
+    if (view === 'compose') return buildCompose();
+    if (view === 'dm')      return buildDM();
+    return '';
+  }
+ 
+  function buildMain() {
+    const posts = S.ui.activeSection === 'all'
+      ? S.posts
+      : S.posts.filter(p => p.section === S.ui.activeSection);
+ 
+    if (!posts.length) return `
+      <div class="cf-scroll">
+        <div class="cf-empty">暂无帖子<br><span style="font-size:10px;color:#2a1a50;">论坛很安静……这反而不正常</span></div>
+      </div>
+    `;
+ 
+    return `
+      <div class="cf-scroll">
+        ${posts.map(p => {
+          const sec = secById(p.section);
+          return `
+            <div class="cf-card" data-a="open-post" data-pid="${p.id}">
+              <div class="cf-card-top">
+                <span class="cf-sec-tag"
+                  style="background:${sec.color}18;color:${sec.color};border:1px solid ${sec.color}40;">
+                  ${sec.name}
+                </span>
+                <span class="cf-card-author">${esc(p.author)}</span>
+                <span class="cf-card-time">${esc(p.time)}</span>
+              </div>
+              <div class="cf-card-title">${esc(p.title)}</div>
+              <div class="cf-card-excerpt">${esc(p.content)}</div>
+              <div class="cf-card-footer">
+                <span>👁 ${p.views}</span>
+                <span>💬 ${p.replies.length}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+ 
+  function buildThread() {
+    const post = S.posts.find(p => p.id === S.ui.activePostId);
+    if (!post) return `<div class="cf-scroll"><div class="cf-empty">帖子不存在</div></div>`;
+    const sec = secById(post.section);
+    return `
+      <div class="cf-scroll">
+        <div class="cf-thread-op">
+          <span class="cf-sec-tag"
+            style="background:${sec.color}18;color:${sec.color};border:1px solid ${sec.color}40;font-size:9px;padding:2px 8px;border-radius:10px;">
+            ${sec.name}
+          </span>
+          <div class="cf-thread-title" style="margin-top:8px;">${esc(post.title)}</div>
+          <div class="cf-thread-meta">${esc(post.author)} &nbsp;·&nbsp; ${esc(post.time)}</div>
+          <div class="cf-thread-body">${esc(post.content)}</div>
+        </div>
+        <div class="cf-reply-divider">全部回复（${post.replies.length}）</div>
+        ${post.replies.length === 0
+          ? `<div class="cf-empty">暂无回复<br><span style="font-size:10px;color:#2a1a50;">第一个发言的人</span></div>`
+          : post.replies.map((r, i) => `
+              <div class="cf-reply-item">
+                <div class="cf-reply-ava" style="background:${strToColor(r.author)};">${initial(r.author)}</div>
+                <div style="flex:1;">
+                  <div class="cf-reply-author">${esc(r.author)}<span>#${i + 1}</span></div>
+                  <div class="cf-reply-text">${esc(r.content)}</div>
+                  <div class="cf-reply-time">${esc(r.time)}</div>
+                </div>
+              </div>
+            `).join('')
+        }
+      </div>
+      <div class="cf-input-row">
+        <textarea class="cf-ta" id="cf-reply-ta" placeholder="发表回复…" rows="2">${esc(S.ui.replyDraft)}</textarea>
+        <button class="cf-sbtn" data-a="send-reply">发送</button>
+      </div>
+    `;
+  }
+ 
+  function buildCompose() {
+    const secOptions = SECTIONS
+      .filter(s => s.id !== 'all')
+      .map(s => `<option value="${s.id}" ${S.ui.composeSection === s.id ? 'selected' : ''}>${s.name}</option>`)
+      .join('');
+    return `
+      <div class="cf-scroll">
+        <div class="cf-form">
+          <div class="cf-form-group">
+            <label class="cf-label">板块</label>
+            <select class="cf-select" id="cf-compose-sec">${secOptions}</select>
+          </div>
+          <div class="cf-form-group">
+            <label class="cf-label">标题</label>
+            <input class="cf-full-inp" id="cf-compose-title" placeholder="帖子标题" value="${esc(S.ui.composeTitle)}" />
+          </div>
+          <div class="cf-form-group">
+            <label class="cf-label">内容</label>
+            <textarea class="cf-full-ta" id="cf-compose-body" placeholder="分享你的情报、攻略或想法…">${esc(S.ui.composeContent)}</textarea>
+          </div>
+          <button class="cf-wide-btn" data-a="submit-post">发布帖子</button>
         </div>
       </div>
-      <div class="cf-body">
-        <div class="cf-page">${bodyHtml}</div>
-      </div>`;
-
-    bind();
-
-    if (S.view === 'chat') {
-      const cm = document.getElementById('cf-chat-msgs');
-      if (cm) cm.scrollTop = cm.scrollHeight;
-    }
+    `;
   }
-
-  // ── 论坛列表 ────────────────────────────────────────────
-  function htmlForum() {
-    const sections = ['情报交流','组队广场','新人求助','黑名单曝光','闲聊杂谈','悬赏任务'];
-    const tabs = sections.map(s =>
-      `<button class="cf-tab ${s===S.section?'on':''}" data-sec="${esc(s)}">${esc(s)}</button>`
-    ).join('');
-
-    const posts = (S.posts[S.section] || []);
-    const postsHtml = posts.length ? posts.map(p => `
-      <div class="cf-post-item" data-pid="${p.id}">
-        <div class="cf-post-main">
-          ${p.locked
-            ? `<span class="cf-badge cf-badge-lock">🔒 ${p.cost}积分</span>`
-            : `<span class="cf-badge cf-badge-free">免费</span>`}
-          <span class="cf-post-title">${esc(p.title)}</span>
-          <div class="cf-post-meta">
-            <span style="color:${lvc(p.level)}">[${p.level}] ${esc(p.author)}</span>
-            <span>${esc(p.time)}</span>
-          </div>
-        </div>
-        <div class="cf-post-side">
-          <div class="cf-reply-count">${p.replies}</div>
-          <div class="cf-reply-label">回复</div>
-        </div>
-      </div>`).join('')
-      : `<div class="cf-empty">暂无帖子</div>`;
-
+ 
+  function buildDM() {
+    const fid  = S.ui.activeFriendId;
+    const msgs = fid ? (S.dms[fid] || []) : [];
     return `
-      <div class="cf-tabs">${tabs}</div>
-      <div class="cf-scroll"><div class="cf-post-list">${postsHtml}</div></div>
-      <div class="cf-compose">
-        <div class="cf-compose-bar">
-          <input class="cf-input" id="cf-post-input" placeholder="发布新帖子……" />
-          <button class="cf-btn" id="cf-post-submit">发布</button>
-          <button class="cf-btn cf-btn-ghost" id="cf-post-anon">匿名</button>
-        </div>
-      </div>`;
+      <div class="cf-dm-header">私信 · <strong style="color:#b794f4;">${fid ? esc(fid) : '—'}</strong></div>
+      <div class="cf-dm-msgs" id="cf-dm-scroll">
+        ${msgs.length === 0
+          ? `<div class="cf-empty" style="padding:30px;">发送第一条消息吧</div>`
+          : msgs.map(m => {
+              const me = m.sender === S.userId;
+              return `
+                <div class="cf-msg-row${me ? ' me' : ''}">
+                  <div>
+                    ${!me ? `<div class="cf-msg-who">${esc(m.sender)}</div>` : ''}
+                    <div class="cf-bubble">${esc(m.content)}</div>
+                  </div>
+                  <div class="cf-msg-t">${esc(m.time)}</div>
+                </div>
+              `;
+            }).join('')
+        }
+      </div>
+      <div class="cf-input-row">
+        <input class="cf-inp" id="cf-dm-inp" placeholder="发送私信…" value="${esc(S.ui.dmDraft)}" />
+        <button class="cf-sbtn" data-a="send-dm">发送</button>
+      </div>
+    `;
   }
-  // ── 帖子详情 ────────────────────────────────────────────
-  function htmlPost(pid) {
-    const post = allPosts().find(p => p.id === pid);
-    if (!post) { S.view = 'forum'; return htmlForum(); }
-
-    const pool = REPLIES[post.section] || REPLIES['闲聊杂谈'];
-    const picked = [...pool].sort(() => Math.random()-0.5).slice(0, Math.min(4, pool.length));
-    const repliesHtml = picked.map(([author, level, content]) => `
-      <div class="cf-reply-item">
-        <div class="cf-reply-author" style="color:${lvc(level)}">[${level}] ${esc(author)}</div>
-        <div class="cf-reply-content">${esc(content)}</div>
-      </div>`).join('');
-
+ 
+  // ── 好友栏 ─────────────────────────────────────
+ 
+  function buildFriends() {
+    const totalUnread = Object.values(S.unread).reduce((a, b) => a + b, 0);
     return `
-      <div class="cf-scroll">
-        <div class="cf-detail-wrap">
-          <button class="cf-back-btn" id="cf-back">← 返回</button>
-          ${post.locked
-            ? `<span class="cf-badge cf-badge-lock">🔒 ${post.cost}积分</span>`
-            : `<span class="cf-badge cf-badge-free">免费</span>`}
-          <div class="cf-detail-title">${esc(post.title)}</div>
-          <div class="cf-post-meta">
-            <span style="color:${lvc(post.level)}">[${post.level}] ${esc(post.author)}</span>
-            <span>${esc(post.time)}</span>
-          </div>
-          <div class="cf-divider"></div>
-          <div class="cf-replies-hd">回复 · ${post.replies}条</div>
-          ${repliesHtml}
-          <div class="cf-divider"></div>
-          <div class="cf-compose-bar">
-            <input class="cf-input" id="cf-reply-input" placeholder="发表回复……" />
-            <button class="cf-btn" id="cf-reply-submit" data-pid="${post.id}">回复</button>
-          </div>
+      <div id="cf-friends">
+        <div class="cf-panel-head">
+          好友（${S.friends.length}）
+          ${totalUnread > 0 ? `<span class="cf-badge">${totalUnread}</span>` : ''}
         </div>
-      </div>`;
+        <div class="cf-add-row">
+          <input class="cf-add-inp" id="cf-fadd-inp" placeholder="玩家 ID" value="${esc(S.ui.friendSearch)}" />
+          <button class="cf-add-btn" data-a="add-friend">＋</button>
+        </div>
+        <div style="flex:1;overflow-y:auto;">
+          ${S.friends.length === 0
+            ? `<div style="text-align:center;padding:20px 8px;font-size:10px;color:#3a2560;line-height:2;">好友列表为空<br>输入玩家 ID 添加</div>`
+            : S.friends.map(f => {
+                const unread = S.unread[f.id] || 0;
+                const on = S.ui.view === 'dm' && S.ui.activeFriendId === f.id;
+                return `
+                  <div class="cf-friend-item${on ? ' on' : ''}" data-a="open-dm" data-fid="${esc(f.id)}">
+                    <div class="cf-f-dot" style="background:${f.color || '#6a4ac8'};"></div>
+                    <span class="cf-f-name">${esc(f.id)}</span>
+                    ${unread > 0 ? `<span class="cf-f-badge">${unread}</span>` : ''}
+                  </div>
+                `;
+              }).join('')
+          }
+        </div>
+      </div>
+    `;
   }
-
-  // ── 好友列表 ────────────────────────────────────────────
-  function htmlFriends() {
-    const list = S.friends.length
-      ? S.friends.map(f => `
-          <div class="cf-friend-item">
-            <div>
-              <div class="cf-friend-id" style="color:${lvc(f.level)}">[${f.level}] ${esc(f.id)}</div>
-              <div class="cf-friend-status ${f.status==='回廊中'?'cf-s-online':f.status==='副本中'?'cf-s-dungeon':'cf-s-offline'}">${esc(f.status)}</div>
-            </div>
-            <div class="cf-friend-actions">
-              ${f.unread ? `<span class="cf-unread">${f.unread}</span>` : ''}
-              <button class="cf-btn cf-btn-sm" data-chat="${esc(f.id)}">私聊</button>
-              <button class="cf-btn cf-btn-sm cf-btn-red" data-del="${esc(f.id)}">删除</button>
-            </div>
-          </div>`).join('')
-      : `<div class="cf-empty">暂无好友</div>`;
-
-    return `
-      <div class="cf-scroll">
-        <div class="cf-friends-wrap">
-          <div class="cf-add-bar">
-            <input class="cf-add-input" id="cf-add-input" placeholder="输入玩家ID发送好友申请…" />
-            <button class="cf-btn" id="cf-add-submit">申请</button>
-          </div>
-          ${list}
-        </div>
-      </div>`;
-  }
-
-  // ── 私聊 ────────────────────────────────────────────────
-  function htmlChat(friendId) {
-    const friend = S.friends.find(f => f.id === friendId);
-    if (!friend) { S.view = 'friends'; return htmlFriends(); }
-    friend.unread = 0;
-
-    const logs = S.chatLogs[friendId] || [];
-    const msgsHtml = logs.length
-      ? logs.map(m => {
-          const self = m.from === 'me';
-          return `
-            <div class="cf-msg ${self?'cf-msg-self':'cf-msg-other'}">
-              <div class="cf-msg-author">${self?'你':esc(m.from)}</div>
-              <div class="cf-msg-bubble">${esc(m.content)}</div>
-              <div class="cf-msg-time">${esc(m.time)}</div>
-            </div>`;
-        }).join('')
-      : `<div class="cf-empty" style="margin-top:40px;">开始聊天吧</div>`;
-
-    return `
-      <div class="cf-chat-wrap">
-        <div class="cf-chat-header">
-          <button class="cf-chat-back" id="cf-chat-back">←</button>
-          <div>
-            <div class="cf-chat-target" style="color:${lvc(friend.level)}">[${friend.level}] ${esc(friendId)}</div>
-            <div class="cf-friend-status ${friend.status==='回廊中'?'cf-s-online':friend.status==='副本中'?'cf-s-dungeon':'cf-s-offline'}" style="font-size:9px;">${esc(friend.status)}</div>
-          </div>
-        </div>
-        <div class="cf-chat-messages" id="cf-chat-msgs">${msgsHtml}</div>
-        <div class="cf-chat-inputbar">
-          <input class="cf-chat-input" id="cf-chat-input" placeholder="输入消息… （Enter发送）" />
-          <button class="cf-btn" id="cf-chat-send" data-fid="${esc(friendId)}">发送</button>
-        </div>
-      </div>`;
-  }
-  // ── 事件绑定 ────────────────────────────────────────────
-  function bind() {
-    q('cf-close')?.addEventListener('click', () => {
-      getOverlay().classList.remove('open');
+ 
+  // ═══════════════════════════════════════════════
+  //  事件绑定
+  // ═══════════════════════════════════════════════
+ 
+  function bindEvents(overlay) {
+    // 点遮罩关闭
+    overlay.addEventListener('mousedown', e => {
+      if (e.target === overlay) hideForum();
     });
-    q('cf-goto-forum')?.addEventListener('click', () => go('forum'));
-    q('cf-goto-friends')?.addEventListener('click', () => go('friends'));
-
-    // 论坛
-    if (S.view === 'forum') {
-      qs('.cf-tab').forEach(t => t.addEventListener('click', () => {
-        S.section = t.dataset.sec; render();
-      }));
-      qs('.cf-post-item').forEach(item => item.addEventListener('click', () => {
-        S.openPostId = parseInt(item.dataset.pid);
-        S.view = 'post'; render();
-      }));
-      q('cf-post-submit')?.addEventListener('click', () => submitPost(false));
-      q('cf-post-anon')?.addEventListener('click', () => submitPost(true));
-    }
-
-    // 帖子详情
-    if (S.view === 'post') {
-      q('cf-back')?.addEventListener('click', () => go('forum'));
-      q('cf-reply-submit')?.addEventListener('click', e => {
-        const input = q('cf-reply-input');
-        const val = input?.value?.trim();
-        const pid = parseInt(e.target.dataset.pid);
-        if (!val) return;
-        const post = allPosts().find(p => p.id === pid);
-        if (post) post.replies++;
-        sendToChat(`[论坛回复·${post?.title||''}] ${val}`);
-        input.value = '';
-        render();
-      });
-    }
-
-    // 好友
-    if (S.view === 'friends') {
-      q('cf-add-submit')?.addEventListener('click', () => {
-        const input = q('cf-add-input');
-        const val = input?.value?.trim();
-        if (!val) return;
-        if (S.friends.find(f => f.id === val)) { input.value = ''; return; }
-        S.friends.push({ id:val, level:'?', status:'未知', unread:0 });
-        sendToChat(`[好友申请] 向玩家「${val}」发送了好友申请`);
-        input.value = '';
-        render();
-      });
-      qs('[data-chat]').forEach(btn => btn.addEventListener('click', () => {
-        S.chatTarget = btn.dataset.chat;
-        S.view = 'chat'; render();
-      }));
-      qs('[data-del]').forEach(btn => btn.addEventListener('click', () => {
-        S.friends = S.friends.filter(f => f.id !== btn.dataset.del);
-        render();
-      }));
-    }
-    // 私聊
-    if (S.view === 'chat') {
-      q('cf-chat-back')?.addEventListener('click', () => go('friends'));
-      const doSend = () => {
-        const input = q('cf-chat-input');
-        const val = input?.value?.trim();
-        const fid = q('cf-chat-send')?.dataset?.fid;
-        if (!val || !fid) return;
-        if (!S.chatLogs[fid]) S.chatLogs[fid] = [];
-        S.chatLogs[fid].push({ from:'me', content:val, time: nowTime() });
-        sendToChat(`[私聊→${fid}] ${val}`);
-        input.value = '';
-        render();
-      };
-      q('cf-chat-send')?.addEventListener('click', doSend);
-      q('cf-chat-input')?.addEventListener('keydown', e => { if (e.key==='Enter') doSend(); });
+ 
+    // 事件委托
+    overlay.addEventListener('click', e => {
+      const btn = e.target.closest('[data-a]');
+      if (!btn) return;
+      e.stopPropagation();
+      handle(btn.dataset.a, btn);
+    });
+ 
+    // Enter 快捷键
+    overlay.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        if (e.target.id === 'cf-setup-id') handle('setup-ok');
+        if (e.target.id === 'cf-fadd-inp') handle('add-friend');
+        if (e.target.id === 'cf-dm-inp') handle('send-dm');
+      }
+    });
+ 
+    // 草稿同步
+    overlay.addEventListener('input', e => {
+      const id = e.target.id;
+      if (id === 'cf-compose-sec')    S.ui.composeSection  = e.target.value;
+      if (id === 'cf-compose-title')  S.ui.composeTitle    = e.target.value;
+      if (id === 'cf-compose-body')   S.ui.composeContent  = e.target.value;
+      if (id === 'cf-reply-ta')       S.ui.replyDraft      = e.target.value;
+      if (id === 'cf-dm-inp')         S.ui.dmDraft         = e.target.value;
+      if (id === 'cf-fadd-inp')       S.ui.friendSearch    = e.target.value;
+    });
+ 
+    // DM 滚动到底
+    setTimeout(() => {
+      const dm = document.getElementById('cf-dm-scroll');
+      if (dm) dm.scrollTop = dm.scrollHeight;
+    }, 30);
+  }
+ 
+  async function handle(action, btn) {
+    switch (action) {
+ 
+      case 'close':    hideForum(); break;
+      case 'compose':  switchView('compose'); break;
+ 
+      case 'back':
+        switchView('main');
+        break;
+ 
+      case 'section':
+        S.ui.activeSection = btn.dataset.sec;
+        switchView('main');
+        break;
+ 
+      case 'open-post': {
+        S.ui.activePostId = btn.dataset.pid;
+        S.ui.replyDraft   = '';
+        // 新帖通知扣减
+        if (S.newPosts > 0) S.newPosts = Math.max(0, S.newPosts - 1);
+        // 增加浏览量
+        const p = S.posts.find(x => x.id === S.ui.activePostId);
+        if (p) p.views++;
+        switchView('thread');
+        // 滚到回复底部
+        setTimeout(() => {
+          const sc = document.querySelector('#cf-content .cf-scroll');
+          if (sc) sc.scrollTop = sc.scrollHeight;
+        }, 40);
+        break;
+      }
+ 
+      case 'open-dm': {
+        const fid = btn.dataset.fid;
+        S.ui.activeFriendId = fid;
+        S.ui.dmDraft        = '';
+        S.unread[fid]       = 0;
+        switchView('dm');
+        break;
+      }
+ 
+      case 'setup-ok':    doSetup();       break;
+      case 'add-friend':  doAddFriend();   break;
+      case 'send-reply':  doSendReply();   break;
+      case 'send-dm':     doSendDM();      break;
+      case 'submit-post': doSubmitPost();  break;
+ 
+      case 'clear-data':
+        if (confirm('确定清除所有论坛数据？此操作不可撤销。')) {
+          clearAll();
+          switchView('setup');
+        }
+        break;
     }
   }
-
-  function go(view) { S.view = view; render(); }
-  function q(id) { return document.getElementById(id); }
-  function qs(sel) { return Array.from(document.querySelectorAll(`#corridor-forum-overlay ${sel}`)); }
-
-  // ── 发帖 ────────────────────────────────────────────────
-  function submitPost(anon) {
-    const input = q('cf-post-input');
-    const val = input?.value?.trim();
-    if (!val) return;
-    if (!S.posts[S.section]) S.posts[S.section] = [];
-    S.posts[S.section].unshift({
-      id: Date.now(),
-      author: anon ? '匿名玩家' : '{{user}}',
-      level: 'F',
-      time: '刚刚',
-      title: val,
-      locked: false,
-      cost: 0,
-      replies: 0,
-    });
-    sendToChat(`[论坛${anon?'匿名':''}发帖·${S.section}]「${val}」`);
-    input.value = '';
+ 
+  // ═══════════════════════════════════════════════
+  //  操作处理
+  // ═══════════════════════════════════════════════
+ 
+  function doSetup() {
+    const val = (document.getElementById('cf-setup-id')?.value || '').trim();
+    if (!val) { toastr?.warning('请输入论坛 ID'); return; }
+    S.userId = val;
+    S.ui.view = 'main';
+    save();
     render();
   }
-
-  // ── 发消息给AI ──────────────────────────────────────────
-  function sendToChat(text) {
-    const ta = document.querySelector('#send_textarea');
-    if (!ta) return;
-    ta.value = text;
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-    const btn = document.querySelector('#send_but');
-    if (btn) btn.click();
+ 
+  async function doAddFriend() {
+    const inp = document.getElementById('cf-fadd-inp');
+    const fid = (inp?.value || S.ui.friendSearch || '').trim();
+    if (!fid)                           { toastr?.warning('请输入玩家 ID'); return; }
+    if (fid === S.userId)              { toastr?.warning('不能添加自己'); return; }
+    if (S.friends.find(f => f.id === fid)) { toastr?.info(`${fid} 已在好友列表`); return; }
+    S.ui.friendSearch = '';
+    render();
+    await sendToChat(promptAddFriend(fid));
   }
-
-  // ── 外部接口：AI注入私聊回复 ───────────────────────────
-  // 在AI回复处理里调用：corridorAddChat('好友ID', '内容')
-  window.corridorAddChat = function(friendId, content) {
-    if (!S.chatLogs[friendId]) S.chatLogs[friendId] = [];
-    S.chatLogs[friendId].push({ from: friendId, content, time: nowTime() });
-    const f = S.friends.find(x => x.id === friendId);
-    if (f && !(S.view === 'chat' && S.chatTarget === friendId)) {
-      f.unread = (f.unread || 0) + 1;
+ 
+  async function doSendReply() {
+    const ta   = document.getElementById('cf-reply-ta');
+    const text = (ta?.value || S.ui.replyDraft || '').trim();
+    if (!text) { toastr?.warning('请输入回复内容'); return; }
+    const post = S.posts.find(p => p.id === S.ui.activePostId);
+    if (!post)  return;
+ 
+    post.replies.push({ author: S.userId, content: text, time: nowStr() });
+    S.ui.replyDraft = '';
+    save();
+    render();
+    await sendToChat(promptReply(post, text));
+  }
+ 
+  async function doSendDM() {
+    const inp  = document.getElementById('cf-dm-inp');
+    const text = (inp?.value || S.ui.dmDraft || '').trim();
+    const fid  = S.ui.activeFriendId;
+    if (!text || !fid) return;
+ 
+    if (!S.dms[fid]) S.dms[fid] = [];
+    S.dms[fid].push({ sender: S.userId, content: text, time: nowStr() });
+    S.ui.dmDraft = '';
+    save();
+    render();
+    await sendToChat(promptDM(fid, text));
+  }
+ 
+  async function doSubmitPost() {
+    const sec   = document.getElementById('cf-compose-sec')?.value   || S.ui.composeSection;
+    const title = (document.getElementById('cf-compose-title')?.value || S.ui.composeTitle || '').trim();
+    const body  = (document.getElementById('cf-compose-body')?.value  || S.ui.composeContent || '').trim();
+    if (!title) { toastr?.warning('请输入标题'); return; }
+    if (!body)  { toastr?.warning('请输入内容'); return; }
+ 
+    const pid = randId();
+    const post = {
+      id: pid, author: S.userId,
+      section: sec, title, content: body,
+      time: nowStr(), replies: [], views: 1,
+    };
+    S.posts.unshift(post);
+    S.ui.composeTitle   = '';
+    S.ui.composeContent = '';
+    S.ui.composeSection = 'chat';
+    switchView('main');
+    save();
+    await sendToChat(promptPost(pid, sec, title, body));
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  显示/隐藏
+  // ═══════════════════════════════════════════════
+ 
+  function showForum() {
+    let el = document.getElementById('cf-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cf-overlay';
+      document.body.appendChild(el);
     }
-    if (S.view === 'chat' && S.chatTarget === friendId) render();
-  };
-
-  // ── 注册到酒馆按钮系统 ──────────────────────────────────
-  window.getButtonEvent = function(name) {
-    if (name === '论坛（回声板）') {
-      S.view = 'forum';
-      render();
-    }
-  };
-
-  // ── ST扩展事件挂载 ──────────────────────────────────────
-  if (typeof SillyTavern !== 'undefined') {
-    const ctx = SillyTavern.getContext();
-    if (ctx && ctx.eventSource && ctx.eventTypes) {
-      ctx.eventSource.on(ctx.eventTypes.APP_READY, () => {
-        console.log('[回廊·回声板] 扩展加载完成');
+    S.ui.visible = true;
+    render();
+  }
+ 
+  function hideForum() {
+    const el = document.getElementById('cf-overlay');
+    if (el) el.innerHTML = '';
+    S.ui.visible = false;
+  }
+ 
+  function switchView(view) {
+    S.ui.view = view;
+    render();
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  工具函数
+  // ═══════════════════════════════════════════════
+ 
+  function esc(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+ 
+  function initial(str) {
+    return str ? str.charAt(0).toUpperCase() : '?';
+  }
+ 
+  function secById(id) {
+    return SECTIONS.find(s => s.id === id) || SECTIONS[0];
+  }
+ 
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+ 
+  function randId() {
+    return Math.random().toString(36).slice(2, 8);
+  }
+ 
+  function randColor() {
+    const palette = ['#6a4ac8','#c84a6a','#4a8ac8','#4ac86a','#c8a04a','#8a4ac8'];
+    return palette[randInt(0, palette.length - 1)];
+  }
+ 
+  // 根据字符串生成稳定颜色（头像背景）
+  function strToColor(str) {
+    if (!str) return '#4a3080';
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = (h << 5) - h + str.charCodeAt(i);
+    const hue = Math.abs(h) % 360;
+    return `hsl(${hue},45%,30%)`;
+  }
+ 
+  function nowStr() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mn = String(d.getMinutes()).padStart(2, '0');
+    return `${mm}-${dd} ${hh}:${mn}`;
+  }
+ 
+  function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+ 
+  function injectCSS() {
+    document.getElementById(`${EXT_ID}-style`)?.remove();
+    const s  = document.createElement('style');
+    s.id     = `${EXT_ID}-style`;
+    s.textContent = CSS;
+    document.head.appendChild(s);
+  }
+ 
+  // ═══════════════════════════════════════════════
+  //  ST 事件钩子 & 初始化
+  // ═══════════════════════════════════════════════
+ 
+  $(async function () {
+    try {
+      injectCSS();
+      load();
+ 
+      appendInexistentScriptButtons([
+        { name: '打开论坛', visible: true },
+        { name: '刷新论坛', visible: true },
+      ]);
+ 
+      // 按钮点击
+      eventOn(getButtonEvent('打开论坛'), () => {
+        S.ui.visible ? hideForum() : showForum();
       });
+ 
+      eventOn(getButtonEvent('刷新论坛'), async () => {
+        await parseAllMessages();
+        if (S.ui.visible) render();
+        toastr?.info('论坛数据已刷新');
+      });
+ 
+      // ST 消息事件
+      eventOn(tavern_events.CHARACTER_MESSAGE_RENDERED, async () => {
+        await parseLatest();
+      });
+ 
+      eventOn(tavern_events.MESSAGE_UPDATED, async () => {
+        await parseLatest();
+      });
+ 
+      eventOn(tavern_events.MESSAGE_SWIPED, async () => {
+        await parseLatest();
+      });
+ 
+      eventOn(tavern_events.CHAT_CHANGED, async () => {
+        // 切换聊天时重新解析（不清除本地数据）
+        await parseAllMessages();
+        if (S.ui.visible) render();
+      });
+ 
+      // 初始化解析
+      await parseAllMessages();
+      console.log('[回廊论坛] 插件加载成功 v1.0.0');
+ 
+    } catch (e) {
+      console.error('[回廊论坛] 加载失败:', e);
+      toastr?.error(`回廊论坛插件加载失败: ${e.message}`);
     }
-  }
-
-})();    
-
-
-
+  });
+ 
+})();
